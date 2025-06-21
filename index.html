@@ -373,7 +373,7 @@
         const bestMoves = candidates.filter(m => m.score === bestScore);
         const pick = bestMoves[Math.floor(Math.random() * bestMoves.length)];
         resolve([pick.x, pick.y]); // 최종 선택된 수를 Promise로 반환
-      }, 2000); // 1.5초 동안 후보 돌들을 보여줌 (점수 확인 시간 확보)
+      }, 1000); // 1.5초 동안 후보 돌들을 보여줌 (점수 확인 시간 확보)
     });
   };
 

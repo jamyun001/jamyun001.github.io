@@ -1,229 +1,218 @@
-<!DOCTYPE html><html lang="ko">
+<!DOCTYPE html>
+<html lang="ko">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>오목 AI 게임</title>
-  <style>
-    body { margin: 14px; display: flex; flex-direction: column; align-items: center; background: #fff; color: #000; font-family: sans-serif; min-height: 100vh; }
-    h1 { margin: 6px 0 14px; font-weight: 700; font-size: 1.4rem; }
-    #controls { display: flex; gap: 10px; flex-wrap: wrap; justify-content: center; max-width: 680px; margin-bottom: 14px; }
-    select, button { cursor: pointer; font-size: 0.8rem; padding: 7px 14px; border: none; border-radius: 7px; background: #0d6efd; color: #fff; font-weight: 600; min-width: 110px; }
-    select:hover, button:hover:not(:disabled) { background: #084cdf; }
-    button:disabled { background: #7ea9e5; cursor: default; }
-    #board { border: 3px solid #444; width: 600px; height: 600px; max-width: 95vw; background: #fafafa; border-radius: 12px; }
-    #log { margin-top: 14px; max-width: 680px; width: 95vw; height: 110px; background: #f0f0f0; border-radius: 12px; border: 1px solid #ccc; overflow-y: auto; padding: 10px; font-size: 0.75rem; white-space: pre-wrap; }
-    @media(max-width:600px) {
-      button, select { font-size: 0.7rem; padding: 6px 10px; min-width: 70px; }
-      h1 { font-size: 1.2rem; }
-      #board { width: 95vw; height: 95vw; }
-      #log { height: 90px; }
-    }
-  </style>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>오목 AI 게임</title>
+<style>
+body{margin:14px;display:flex;flex-direction:column;align-items:center;background:#fff;color:#000;font-family:sans-serif;min-height:100vh;}
+h1{margin:6px 0 14px;font-weight:700;font-size:1.4rem;}
+#controls{display:flex;gap:10px;flex-wrap:wrap;justify-content:center;max-width:680px;margin-bottom:14px;}
+select,button{cursor:pointer;font-size:0.8rem;padding:7px 14px;border:none;border-radius:7px;background:#0d6efd;color:#fff;font-weight:600;min-width:110px;}
+select:hover,button:hover:not(:disabled){background:#084cdf;}
+button:disabled{background:#7ea9e5;cursor:default;}
+#board{border:3px solid #444;width:600px;height:600px;max-width:95vw;background:#fafafa;border-radius:12px;}
+#log{margin-top:14px;max-width:680px;width:95vw;height:110px;background:#f0f0f0;border-radius:12px;border:1px solid #ccc;overflow-y:auto;padding:10px;font-size:0.75rem;white-space:pre-wrap;}
+@media(max-width:600px){button,select{font-size:0.7rem;padding:6px 10px;min-width:70px;}h1{font-size:1.2rem;}#board{width:95vw;height:95vw;}#log{height:90px;}}
+</style>
 </head>
 <body>
-  <h1>🎯 오목 AI 게임</h1>
-  <div id="controls">
-    <select id="firstTurn"><option value="1">플레이어 선공</option><option value="2">AI 선공</option></select>
-    <select id="difficulty"><option value="1">쉬움</option><option value="1.5" selected>보통</option><option value="2">어려움</option><option value="2.5">매우 어려움</option></select>
-    <button id="startBtn">게임 시작</button>
-    <button id="undoBtn" disabled>무르기</button>
-    <button id="restartBtn" disabled>다시 시작</button>
-    <button id="forfeitBtn" disabled>포기하기</button>
-  </div>
-  <canvas id="board" width="600" height="600"></canvas>
-  <div id="log"></div>  <script>
-  document.addEventListener("DOMContentLoaded", () => {
-    // 전체 IIFE 코드 시작
-    (() => {
-      const $ = id => document.getElementById(id);
-      const c = $("board"), ctx = c.getContext("2d"), log = $("log");
-      const size = 15, bSize = 540, offset = (c.width - bSize) / 2, cell = bSize / (size - 1);
-      let board, history, turn, last, running, aiDepth = 2;
+<h1>🎯 오목 AI 게임</h1>
+<div id="controls">
+  <select id="firstTurn"><option value="1">플레이어 선공</option><option value="2">AI 선공</option></select>
+  <select id="difficulty"><option value="1">쉬운</option><option value="1.5" selected>보통</option><option value="2">어느운</option><option value="2.5">매우 어느운</option></select>
+  <button id="startBtn">게임 시작</button>
+  <button id="undoBtn" disabled>무르기</button>
+  <button id="restartBtn" disabled>다시 시작</button>
+  <button id="forfeitBtn" disabled>포기하기</button>
+</div>
+<canvas id="board" width="600" height="600"></canvas>
+<div id="log"></div>
+<script>
+(() => {
+const $ = id => document.getElementById(id);
+const c = $("board"), ctx = c.getContext("2d"), log = $("log");
+const size = 15, bSize = 540, offset = (c.width - bSize) / 2, cell = bSize / (size - 1);
+let board, history, turn, last, running, aiDepth = 2;
 
-      const init = () => {
-        board = Array.from({length: size}, () => Array(size).fill(0));
-        history = [];
-        last = null;
-      };
-      const render = () => {
-        ctx.clearRect(0,0,c.width,c.height);
-        drawBoard();
-        drawStones();
-      };
-      const drawBoard = () => {
-        ctx.strokeStyle = '#444'; ctx.lineWidth = 1;
-        for (let i = 0; i < size; i++) {
-          ctx.beginPath(); ctx.moveTo(offset, offset + i * cell); ctx.lineTo(offset + (size - 1) * cell, offset + i * cell); ctx.stroke();
-          ctx.beginPath(); ctx.moveTo(offset + i * cell, offset); ctx.lineTo(offset + i * cell, offset + (size - 1) * cell); ctx.stroke();
-        }
-        [[7,7],[3,3],[3,11],[11,3],[11,11]].forEach(([x,y]) => {
-          ctx.beginPath(); ctx.arc(offset+x*cell, offset+y*cell, 5, 0, 2*Math.PI); ctx.fillStyle="#555"; ctx.fill();
-        });
-      };
-      const drawStones = () => {
-        for (let y = 0; y < size; y++) for (let x = 0; x < size; x++) if (board[y][x]) {
-          ctx.beginPath();
-          ctx.arc(offset + x * cell, offset + y * cell, cell / 2.8, 0, 2 * Math.PI);
-          ctx.fillStyle = board[y][x] === 1 ? "#000" : "#eee";
-          ctx.shadowColor = "rgba(0,0,0,0.3)"; ctx.shadowBlur = 3;
-          ctx.fill(); ctx.shadowBlur = 0; ctx.strokeStyle = "#333"; ctx.stroke();
-        }
-        if (last) {
-          ctx.strokeStyle = "#0d6efd"; ctx.lineWidth = 3;
-          ctx.beginPath(); ctx.arc(offset + last.x * cell, offset + last.y * cell, cell / 2.8 + 3, 0, 2 * Math.PI); ctx.stroke();
-        }
-      };
-
-      const checkWin = (x, y, t) => {
-        const dirs = [[1,0],[0,1],[1,1],[1,-1]];
-        for (let [dx,dy] of dirs) {
-          let cnt = 1;
-          for (let d of [-1,1]) {
-            let nx = x + dx * d, ny = y + dy * d;
-            while (board[ny]?.[nx] === t) { cnt++; nx += dx * d; ny += dy * d; }
-          }
-          if (cnt >= 5) return true;
-        }
-        return false;
-      };
-
-      const distanceFromCenter = ([x, y]) => Math.abs(x - 7) + Math.abs(y - 7);
-      const nearby = (x,y) => {
-        for (let dy = -2; dy <= 2; dy++)
-          for (let dx = -2; dx <= 2; dx++) {
-            let nx = x + dx, ny = y + dy;
-            if (nx >= 0 && ny >= 0 && nx < size && ny < size && board[ny][nx]) return true;
-          }
-        return false;
-      };
-      const moves = () => {
-        const arr = [];
-        for (let y = 0; y < size; y++) {
-          for (let x = 0; x < size; x++) {
-            if (!board[y][x] && nearby(x,y)) arr.push([x,y]);
-          }
-        }
-        return arr.length ? arr.sort((a,b) => distanceFromCenter(a) - distanceFromCenter(b)) : [[7,7]];
-      };
-
-      const evalBoard = (b, t) => {
-        let score = 0;
-        const dirs = [[1,0],[0,1],[1,1],[1,-1]];
-        for (let y = 0; y < size; y++) for (let x = 0; x < size; x++) {
-          if (b[y][x] !== t) continue;
-          for (let [dx,dy] of dirs) {
-            let cnt = 1, block = 0, open = 0;
-            for (let d of [-1,1]) {
-              let nx = x + dx * d, ny = y + dy * d;
-              while (b[ny]?.[nx] === t) { cnt++; nx += dx * d; ny += dy * d; }
-              if (!b[ny]?.[nx]) open++;
-              else if (b[ny][nx] !== t) block++;
-            }
-            if (cnt >= 5) score += 1e6;
-            else if (cnt === 4 && open === 2) score += 1e5;
-            else if (cnt === 4 && open === 1) score += 5e4;
-            else if (cnt === 3 && open === 2) score += 1e4;
-            else if (cnt === 2 && open === 2) score += 1e3;
-          }
-        }
-        return score;
-      };
-
-      const minimax = (b,d,a,beta,t,maxim) => {
-        if (d <= 0) return evalBoard(b,2) - evalBoard(b,1);
-        const ms = moves();
-        if (!ms.length) return 0;
-        let best = maxim ? -Infinity : Infinity;
-        for (let [x,y] of ms) {
-          b[y][x] = t;
-          const sc = checkWin(x,y,t) ? (t===2?1e6:-1e6) : minimax(b,d-1,a,beta,3-t,!maxim);
-          b[y][x] = 0;
-          if (maxim) {
-            best = Math.max(best, sc);
-            a = Math.max(a, best);
-          } else {
-            best = Math.min(best, sc);
-            beta = Math.min(beta, best);
-          }
-          if (beta <= a) break;
-        }
-        return best;
-      };
-
-      const aiMove = () => {
-        const ms = moves();
-        const candidates = [];
-        for (let [x, y] of ms) {
-          board[y][x] = 2;
-          let score = checkWin(x, y, 2) ? 1e6 : minimax(board, aiDepth, -1e9, 1e9, 1, false);
-          board[y][x] = 0;
-          candidates.push({ x, y, score });
-        }
-        candidates.sort((a, b) => b.score - a.score);
-        const bestScore = candidates[0].score;
-        const bestMoves = candidates.filter(m => m.score === bestScore);
-        const pick = bestMoves[Math.floor(Math.random() * bestMoves.length)];
-        return [pick.x, pick.y];
-      };
-
-      const logMsg = m => { log.textContent += m + "\n"; log.scrollTop = log.scrollHeight; };
-
-      $("startBtn").onclick = () => {
-        init(); render(); log.textContent = "";
-        running = true; turn = +$("firstTurn").value;
-        aiDepth = { "1": 1, "1.5": 2, "2": 3, "2.5": 4 }[$("difficulty").value];
-        history = [JSON.stringify(board)];
-        $("undoBtn").disabled = false;
-        $("restartBtn").disabled = false;
-        $("forfeitBtn").disabled = false;
-        if (turn === 2) {
-          board[7][7] = 2; last = {x:7,y:7}; render(); turn = 1; logMsg("AI 착수: (8,8)");
-          history.push(JSON.stringify(board));
-        } else logMsg("플레이어 선공");
-      };
-
-      $("board").onclick = e => {
-        if (!running || turn !== 1) return;
-        const r = c.getBoundingClientRect();
-        const x = Math.round((e.clientX - r.left) * c.width / r.width - offset) / cell;
-        const y = Math.round((e.clientY - r.top) * c.height / r.height - offset) / cell;
-        const xi = Math.round(x), yi = Math.round(y);
-        if (xi < 0 || yi < 0 || xi >= size || yi >= size || board[yi][xi]) return;
-        board[yi][xi] = 1; last = {x:xi,y:yi}; render(); history.push(JSON.stringify(board));
-        if (checkWin(xi, yi, 1)) { alert("플레이어 승리!"); running = false; return; }
-        turn = 2; logMsg(`플레이어: (${xi+1},${yi+1})`);
-        setTimeout(() => {
-          if (!running) return;
-          const [x, y] = aiMove();
-          board[y][x] = 2; last = {x,y}; render(); history.push(JSON.stringify(board));
-          logMsg(`AI: (${x+1},${y+1})`);
-          if (checkWin(x, y, 2)) { alert("AI 승리!"); running = false; }
-          turn = 1;
-        }, 50);
-      };
-
-      $("undoBtn").onclick = () => {
-        if (!running || history.length < 2) return;
-        history.pop();
-        board = JSON.parse(history[history.length - 1]);
-        render();
-        turn = 3 - turn;
-        logMsg("무르기 실행");
-      };
-
-      $("restartBtn").onclick = () => {
-        $("startBtn").click();
-      };
-
-      $("forfeitBtn").onclick = () => {
-        if (!running) return;
-        running = false;
-        logMsg(turn === 1 ? "플레이어가 포기했습니다." : "AI가 포기했습니다.");
-        alert("게임이 종료되었습니다.");
-      };
-
-      init(); render();
-    })();
+const init = () => { 
+  board = Array.from({length: size}, () => Array(size).fill(0)); 
+  history = []; 
+  last = null; 
+};
+const render = () => { 
+  ctx.clearRect(0,0,c.width,c.height); 
+  drawBoard(); 
+  drawStones(); 
+};
+const drawBoard = () => {
+  ctx.strokeStyle = '#444'; ctx.lineWidth = 1;
+  for (let i = 0; i < size; i++) {
+    ctx.beginPath(); ctx.moveTo(offset, offset + i * cell); ctx.lineTo(offset + (size - 1) * cell, offset + i * cell); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(offset + i * cell, offset); ctx.lineTo(offset + i * cell, offset + (size - 1) * cell); ctx.stroke();
+  }
+  [[7,7],[3,3],[3,11],[11,3],[11,11]].forEach(([x,y]) => {
+    ctx.beginPath(); ctx.arc(offset+x*cell, offset+y*cell, 5, 0, 2*Math.PI); ctx.fillStyle="#555"; ctx.fill();
   });
-  </script></body>
+};
+const drawStones = () => {
+  for (let y = 0; y < size; y++) for (let x = 0; x < size; x++) if (board[y][x]) {
+    ctx.beginPath();
+    ctx.arc(offset + x * cell, offset + y * cell, cell / 2.8, 0, 2 * Math.PI);
+    ctx.fillStyle = board[y][x] === 1 ? "#000" : "#eee";
+    ctx.shadowColor = "rgba(0,0,0,0.3)"; ctx.shadowBlur = 3;
+    ctx.fill(); ctx.shadowBlur = 0; ctx.strokeStyle = "#333"; ctx.stroke();
+  }
+  if (last) {
+    ctx.strokeStyle = "#0d6efd"; ctx.lineWidth = 3;
+    ctx.beginPath(); ctx.arc(offset + last.x * cell, offset + last.y * cell, cell / 2.8 + 3, 0, 2 * Math.PI); ctx.stroke();
+  }
+};
+const checkWin = (x, y, t) => {
+  const dirs = [[1,0],[0,1],[1,1],[1,-1]];
+  for (let [dx,dy] of dirs) {
+    let cnt = 1;
+    for (let d of [-1,1]) {
+      let nx = x + dx * d, ny = y + dy * d;
+      while (board[ny]?.[nx] === t) { cnt++; nx += dx * d; ny += dy * d; }
+    }
+    if (cnt >= 5) return true;
+  }
+  return false;
+};
+const nearby = (x,y) => {
+  for (let dy = -2; dy <= 2; dy++)
+    for (let dx = -2; dx <= 2; dx++) {
+      let nx = x + dx, ny = y + dy;
+      if (nx >= 0 && ny >= 0 && nx < size && ny < size && board[ny][nx]) return true;
+    }
+  return false;
+};
+const distanceFromCenter = ([x, y]) => Math.abs(x - 7) + Math.abs(y - 7);
+const moves = () => {
+  const arr = [];
+  for (let y = 0; y < size; y++) {
+    for (let x = 0; x < size; x++) {
+      if (!board[y][x] && nearby(x,y)) arr.push([x,y]);
+    }
+  }
+  return arr.length ? arr.sort((a,b) => distanceFromCenter(a) - distanceFromCenter(b)) : [[7,7]];
+};
+const evalBoard = (b, t) => {
+  let score = 0;
+  const dirs = [[1,0],[0,1],[1,1],[1,-1]];
+  for (let y = 0; y < size; y++) for (let x = 0; x < size; x++) {
+    if (b[y][x] !== t) continue;
+    for (let [dx,dy] of dirs) {
+      let cnt = 1, block = 0, open = 0;
+      for (let d of [-1,1]) {
+        let nx = x + dx * d, ny = y + dy * d;
+        while (b[ny]?.[nx] === t) { cnt++; nx += dx * d; ny += dy * d; }
+        if (!b[ny]?.[nx]) open++;
+        else if (b[ny][nx] !== t) block++;
+      }
+      if (cnt >= 5) score += 1e6;
+      else if (cnt === 4 && open === 2) score += 1e5;
+      else if (cnt === 4 && open === 1) score += 5e4;
+      else if (cnt === 3 && open === 2) score += 1e4;
+      else if (cnt === 2 && open === 2) score += 1e3;
+    }
+  }
+  return score;
+};
+const minimax = (b,d,a,beta,t,maxim) => {
+  if (d <= 0) return evalBoard(b,2) - evalBoard(b,1);
+  const ms = moves();
+  if (!ms.length) return 0;
+  let best = maxim ? -Infinity : Infinity;
+  for (let [x,y] of ms) {
+    b[y][x] = t;
+    const sc = checkWin(x,y,t) ? (t===2?1e6:-1e6) : minimax(b,d-1,a,beta,3-t,!maxim);
+    b[y][x] = 0;
+    if (maxim) {
+      best = Math.max(best, sc);
+      a = Math.max(a, best);
+    } else {
+      best = Math.min(best, sc);
+      beta = Math.min(beta, best);
+    }
+    if (beta <= a) break;
+  }
+  return best;
+};
+const aiMove = () => {
+  const ms = moves();
+  const candidates = [];
+  for (let [x, y] of ms) {
+    board[y][x] = 2;
+    let score = checkWin(x, y, 2) ? 1e6 : minimax(board, aiDepth, -1e9, 1e9, 1, false);
+    board[y][x] = 0;
+    candidates.push({ x, y, score });
+  }
+  candidates.sort((a, b) => b.score - a.score);
+  const bestScore = candidates[0].score;
+  const bestMoves = candidates.filter(m => m.score === bestScore);
+  const pick = bestMoves[Math.floor(Math.random() * bestMoves.length)];
+  return [pick.x, pick.y];
+};
+const logMsg = m => { log.textContent += m + "\n"; log.scrollTop = log.scrollHeight; };
+
+$("startBtn").onclick = () => {
+  init(); render(); log.textContent = "";
+  running = true; turn = +$("firstTurn").value;
+  aiDepth = { "1": 1, "1.5": 2, "2": 3, "2.5": 4 }[$("difficulty").value];
+  history = [JSON.stringify(board)];
+  $("undoBtn").disabled = false;
+  $("restartBtn").disabled = false;
+  $("forfeitBtn").disabled = false;
+  if (turn === 2) {
+    board[7][7] = 2; last = {x:7,y:7}; render(); turn = 1; logMsg("AI 착수: (8,8)");
+    history.push(JSON.stringify(board));
+  } else logMsg("플레이어 선공");
+};
+
+$("board").onclick = e => {
+  if (!running || turn !== 1) return;
+  const r = c.getBoundingClientRect();
+  const x = Math.round((e.clientX - r.left) * c.width / r.width - offset) / cell;
+  const y = Math.round((e.clientY - r.top) * c.height / r.height - offset) / cell;
+  const xi = Math.round(x), yi = Math.round(y);
+  if (xi < 0 || yi < 0 || xi >= size || yi >= size || board[yi][xi]) return;
+  board[yi][xi] = 1; last = {x:xi,y:yi}; render(); history.push(JSON.stringify(board));
+  if (checkWin(xi, yi, 1)) { alert("플레이어 승리!"); running = false; return; }
+  turn = 2; logMsg(`플레이어: (${xi+1},${yi+1})`);
+  setTimeout(() => {
+    if (!running) return;
+    const [x, y] = aiMove();
+    board[y][x] = 2; last = {x,y}; render(); history.push(JSON.stringify(board));
+    logMsg(`AI: (${x+1},${y+1})`);
+    if (checkWin(x, y, 2)) { alert("AI 승리!"); running = false; }
+    turn = 1;
+  }, 50);
+};
+
+$("undoBtn").onclick = () => {
+  if (!running || history.length < 2) return;
+  history.pop();
+  board = JSON.parse(history[history.length - 1]);
+  render();
+  turn = 3 - turn;
+  logMsg("무르기 실행");
+};
+
+$("restartBtn").onclick = () => {
+  $("startBtn").click();
+};
+
+$("forfeitBtn").onclick = () => {
+  if (!running) return;
+  running = false;
+  logMsg(turn === 1 ? "플레이어가 포기했습니다." : "AI가 포기했습니다.");
+  alert("게임이 종료되었습니다.");
+};
+
+init(); render();
+})();
+</script>
+</body>
 </html>

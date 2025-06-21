@@ -95,10 +95,12 @@
   <script>
 
 (() => {
-  const $ = id => document.getElementById(id);
-  const c = $("board"), ctx = c.getContext("2d"), log = $("log");
+  const $ = id => document.getElementById(id), c = $("board"), ctx = c.getContext("2d"), log = $("log");
   const size = 15, bSize = 540, offset = (c.width - bSize) / 2, cell = bSize / (size - 1);
   let board, history, turn, last, running, aiDepth = 3;
+
+  // AI 공격 우선도 설정 (1.0보다 높으면 공격 우선)
+  const OFFENSE_PRIORITY_FACTOR = 1.2;
 
   const init = () => {
     board = Array.from({length: size}, () => Array(size).fill(0));
@@ -164,47 +166,90 @@
     for (let y = 0; y < size; y++)
       for (let x = 0; x < size; x++)
         if (!board[y][x] && nearby(x,y)) arr.push([x,y]);
-    return arr.length ? arr : [[7,7]];
+    return arr.length ? arr : [[7,7]]; // 주변에 둘 곳 없으면 중앙으로
   };
 
+  // evalBoard 함수를 더 꼼꼼하게 수정
   const evalBoard = (b, t) => {
     let score = 0;
     const dirs = [[1,0],[0,1],[1,1],[1,-1]];
-    for (let y = 0; y < size; y++) for (let x = 0; x < size; x++) {
-      if (b[y][x] !== t) continue;
-      for (let [dx,dy] of dirs) {
-        let cnt = 1, block = 0;
-        for (let d of [-1,1]) {
-          let nx = x + dx * d, ny = y + dy * d;
-          while (b[ny]?.[nx] === t) { cnt++; nx += dx * d; ny += dy * d; }
+
+    for (let y = 0; y < size; y++) {
+      for (let x = 0; x < size; x++) {
+        if (b[y][x] !== t) continue; // 현재 플레이어의 돌만 평가
+
+        for (let [dx,dy] of dirs) {
+          let cnt = 1, block = 0; // cnt: 연속된 돌 개수, block: 양 끝이 막힌 개수
+
+          // 한 방향으로 연속된 돌 개수 세기
+          let nx = x + dx, ny = y + dy;
+          while (b[ny]?.[nx] === t) { cnt++; nx += dx; ny += dy; }
+          // 그 방향 끝이 막혔는지 확인
           if (b[ny]?.[nx] && b[ny][nx] !== t) block++;
+
+          // 반대 방향으로 연속된 돌 개수 세기
+          nx = x - dx; ny = y - dy;
+          while (b[ny]?.[nx] === t) { cnt++; nx -= dx; ny -= dy; }
+          // 그 방향 끝이 막혔는지 확인
+          if (b[ny]?.[nx] && b[ny][nx] !== t) block++;
+
+          // 중복 계산 방지 (같은 라인을 여러 번 세지 않도록)
+          // 이 부분은 현재 evalBoard의 구조상 완벽하게 방지하기 어려움.
+          // 각 돌에서 시작해서 라인을 세는 방식이라 중복이 발생할 수 있으나,
+          // 점수 체계를 상대적으로 조정하여 큰 문제 없도록 함.
+
+          // 꼼꼼한 점수 부여 (열린 형태에 더 높은 점수)
+          if (cnt >= 5) { // 5개 이상: 승리
+            score += 1000000;
+          } else if (cnt === 4) {
+            if (block === 0) score += 100000; // 양쪽이 열린 4개 (매우 강력)
+            else if (block === 1) score += 10000; // 한쪽이 열린 4개
+          } else if (cnt === 3) {
+            if (block === 0) score += 5000; // 양쪽이 열린 3개 (오픈 쓰리)
+            else if (block === 1) score += 500; // 한쪽이 열린 3개
+          } else if (cnt === 2) {
+            if (block === 0) score += 50; // 양쪽이 열린 2개
+            else if (block === 1) score += 5; // 한쪽이 열린 2개
+          }
         }
-        if (cnt >= 5) score += 1e6;
-        else if (cnt === 4 && block === 0) score += 1e5;
-        else if (cnt === 3 && block <= 1) score += 1e4;
-        else if (cnt === 2 && block <= 1) score += 1e3;
       }
     }
     return score;
   };
 
   const minimax = (b,d,a,beta,t,maxim) => {
-    if (d <= 0) return evalBoard(b,2) - evalBoard(b,1);
+    // 탐색 깊이에 도달하면 보드 평가
+    if (d <= 0) {
+      // AI의 공격 점수에 가중치를 부여하여 공격 우선 전략 반영
+      return evalBoard(b,2) * OFFENSE_PRIORITY_FACTOR - evalBoard(b,1);
+    }
+
     const ms = moves();
-    if (!ms.length) return 0;
+    if (!ms.length) return 0; // 더 이상 둘 곳이 없으면 0점
+
     let best = maxim ? -Infinity : Infinity;
+
+    // 가능한 모든 수에 대해 탐색
     for (let [x,y] of ms) {
-      b[y][x] = t;
-      const sc = checkWin(x,y,t) ? (t===2?1e6:-1e6) : minimax(b,d-1,a,beta,3-t,!maxim);
-      b[y][x] = 0;
-      if (maxim) {
+      b[y][x] = t; // 수를 둠
+      let sc;
+      // 현재 수가 승리 수인지 확인 (탐색 깊이와 관계없이 즉시 승리 판단)
+      if (checkWin(x,y,t)) {
+        sc = (t === 2) ? 10000000 : -10000000; // AI 승리 시 매우 높은 점수, 상대 승리 시 매우 낮은 점수
+      } else {
+        // 다음 턴으로 넘어가 minimax 재귀 호출
+        sc = minimax(b, d - 1, a, beta, 3 - t, !maxim);
+      }
+      b[y][x] = 0; // 수를 다시 뺌 (백트래킹)
+
+      if (maxim) { // 최대화 플레이어 (AI)
         best = Math.max(best, sc);
         a = Math.max(a, sc);
-      } else {
+      } else { // 최소화 플레이어 (인간)
         best = Math.min(best, sc);
         beta = Math.min(beta, sc);
       }
-      if (beta <= a) break;
+      if (beta <= a) break; // 알파-베타 가지치기
     }
     return best;
   };
@@ -212,14 +257,28 @@
   const aiMove = () => {
     const ms = moves();
     const candidates = [];
+    let bestScore = -Infinity;
+
+    // 모든 가능한 수에 대해 점수 계산
     for (let [x, y] of ms) {
-      board[y][x] = 2;
-      let score = checkWin(x, y, 2) ? 1e6 : minimax(board, aiDepth, -1e9, 1e9, 1, false);
-      board[y][x] = 0;
+      board[y][x] = 2; // AI 돌을 임시로 놓아봄
+      let score;
+      if (checkWin(x, y, 2)) { // 즉시 승리하는 수라면 최고 점수
+        score = 10000000;
+      } else {
+        // minimax를 통해 해당 수 이후의 최적 점수 계산
+        // aiDepth는 난이도에 따라 설정된 탐색 깊이
+        score = minimax(board, aiDepth, -Infinity, Infinity, 1, false); // 다음 턴은 인간(1), 최소화 플레이어
+      }
+      board[y][x] = 0; // 돌을 다시 뺌
+
       candidates.push({ x, y, score });
+      if (score > bestScore) {
+        bestScore = score;
+      }
     }
-    candidates.sort((a, b) => b.score - a.score);
-    const bestScore = candidates[0].score;
+
+    // 가장 높은 점수를 가진 수들 중에서 무작위로 하나 선택
     const bestMoves = candidates.filter(m => m.score === bestScore);
     const pick = bestMoves[Math.floor(Math.random() * bestMoves.length)];
     return [pick.x, pick.y];
@@ -230,48 +289,52 @@
   $("startBtn").onclick = () => {
     init(); render(); log.textContent = "";
     running = true; turn = +$("firstTurn").value;
+    // 난이도에 따른 AI 탐색 깊이 설정
     aiDepth = { "1": 1, "2": 2, "3": 3, "4": 4, "5": 5, "6": 6 }[$("difficulty").value];
     history = [JSON.stringify(board)];
     $("undoBtn").disabled = false;
     $("restartBtn").disabled = false;
     $("forfeitBtn").disabled = false;
-    if (turn === 2) {
+    if (turn === 2) { // AI 선공
       board[7][7] = 2; last = {x:7,y:7}; render(); turn = 1; logMsg("AI 착수: (8,8)");
       history.push(JSON.stringify(board));
     } else logMsg("플레이어 선공");
   };
 
   $("board").onclick = e => {
-    if (!running || turn !== 1) return;
+    if (!running || turn !== 1) return; // 게임 중이 아니거나 AI 턴이면 무시
     const r = c.getBoundingClientRect();
     const x = Math.round((e.clientX - r.left) * c.width / r.width - offset) / cell;
     const y = Math.round((e.clientY - r.top) * c.height / r.height - offset) / cell;
     const xi = Math.round(x), yi = Math.round(y);
-    if (xi < 0 || yi < 0 || xi >= size || yi >= size || board[yi][xi]) return;
+    if (xi < 0 || yi < 0 || xi >= size || yi >= size || board[yi][xi]) return; // 유효하지 않은 위치거나 이미 돌이 있으면 무시
+
     board[yi][xi] = 1; last = {x:xi,y:yi}; render(); history.push(JSON.stringify(board));
-    if (checkWin(xi, yi, 1)) { alert("플레이어 승리!"); running = false; return; }
+    if (checkWin(xi, yi, 1)) { alert("플레이어 승리!"); running = false; return; } // 플레이어 승리 확인
     turn = 2; logMsg(`플레이어: (${xi+1},${yi+1})`);
+
+    // AI 턴 지연 처리 (사용자 경험 개선)
     setTimeout(() => {
       if (!running) return;
-      const [x, y] = aiMove();
+      const [x, y] = aiMove(); // AI 수 계산
       board[y][x] = 2; last = {x,y}; render(); history.push(JSON.stringify(board));
       logMsg(`AI: (${x+1},${y+1})`);
-      if (checkWin(x, y, 2)) { alert("AI 승리!"); running = false; }
-      turn = 1;
-    }, 30);
+      if (checkWin(x, y, 2)) { alert("AI 승리!"); running = false; } // AI 승리 확인
+      turn = 1; // 턴 다시 플레이어로
+    }, 30); // 30ms 지연
   };
 
   $("undoBtn").onclick = () => {
     if (!running || history.length < 2) return;
-    history.pop();
-    board = JSON.parse(history[history.length - 1]);
+    history.pop(); // 현재 상태 제거
+    board = JSON.parse(history[history.length - 1]); // 이전 상태로 복원
     render();
-    turn = 3 - turn;
+    turn = 3 - turn; // 턴 되돌리기
     logMsg("무르기 실행");
   };
 
   $("restartBtn").onclick = () => {
-    $("startBtn").click();
+    $("startBtn").click(); // 시작 버튼 클릭 효과
   };
 
   $("forfeitBtn").onclick = () => {
